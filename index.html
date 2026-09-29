@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>동물 배구</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <main class="shell">
+      <section id="stage" class="game-stage menu-active" aria-label="동물 배구">
+        <canvas id="game" width="1068" height="600" aria-label="배구 코트"></canvas>
+
+        <div class="game-ui">
+          <div class="top-score" aria-label="점수판">
+            <div class="score-wing left">
+              <span class="team-name" id="playerTeam">토끼고</span>
+              <strong id="playerScore">0</strong>
+            </div>
+            <div class="vs-badge">
+              <span id="roundLabel">7</span>
+              <b>VS</b>
+            </div>
+            <div class="score-wing right">
+              <span class="team-name">원숭이중</span>
+              <strong id="aiScore">0</strong>
+            </div>
+          </div>
+
+          <div class="top-actions" aria-label="경기 메뉴">
+            <button type="button" title="메뉴" id="menuBtn">M<span>메뉴</span></button>
+            <button id="restartBtn" type="button" title="다시 시작">R<span>다시</span></button>
+          </div>
+
+          <p id="status" class="status-pill">서브 버튼으로 시작</p>
+          <div id="scoreToast" class="score-toast" aria-hidden="true">+1</div>
+
+          <div class="stick" aria-label="이동 패드">
+            <button id="leftBtn" type="button" title="왼쪽 이동">왼쪽</button>
+            <button id="rightBtn" type="button" title="오른쪽 이동">오른쪽</button>
+          </div>
+
+          <div class="touch-actions" aria-label="액션 버튼">
+            <button id="serveBtn" type="button" title="타격 / 서브">
+              <span class="icon serve"></span>
+              <em>타격</em>
+            </button>
+            <button id="bumpBtn" type="button" title="아래">
+              <span class="icon run"></span>
+              <em>아래</em>
+            </button>
+            <button id="jumpBtn" type="button" title="점프">
+              <span class="icon jump"></span>
+              <em>점프</em>
+            </button>
+          </div>
+
+        </div>
+
+        <div id="menuOverlay" class="menu-overlay" aria-label="메인 메뉴">
+          <div class="lobby-bg" aria-hidden="true">
+            <span class="tree tree-left"></span>
+            <span class="tree tree-right"></span>
+            <span class="cloud cloud-a"></span>
+            <span class="cloud cloud-b"></span>
+            <span class="leaf leaf-a"></span>
+            <span class="leaf leaf-b"></span>
+            <span class="leaf leaf-c"></span>
+          </div>
+
+          <header class="lobby-top">
+            <div class="profile-card">
+              <img id="profileAvatar" class="avatar" src="assets/토끼.png" alt="토끼">
+              <div>
+                <strong id="profileNickname">배구왕토끼</strong>
+                <small id="profileLevel">Lv.1</small>
+                <span class="xp"><i id="profileXpFill"></i></span>
+              </div>
+            </div>
+            <div class="wallet">
+              <img class="wallet-bar" src="assets/골드바.png" alt="골드">
+              <strong id="coinAmount">0</strong>
+            </div>
+            <div class="wallet gem">
+              <img class="wallet-bar" src="assets/보석바.png" alt="보석">
+              <strong id="gemAmount">0</strong>
+            </div>
+            <nav class="quick-icons" aria-label="quick menu">
+              <button id="settingsBtn" class="asset-icon-btn" type="button" aria-label="설정">
+                <img src="assets/설정_img.png" alt="설정">
+              </button>
+              <button id="mailBtn" type="button">우편<span>우편함</span><i id="mailNotice"></i></button>
+            </nav>
+          </header>
+
+          <aside class="side-menu" aria-label="메인 항목">
+            <button class="tab-btn asset-tab active" type="button" data-view="stage" aria-label="스테이지">
+              <img src="assets/stage-img.png" alt="스테이지">
+            </button>
+            <button class="tab-btn asset-tab" type="button" data-view="character" aria-label="캐릭터 뽑기">
+              <img src="assets/pick-img.png" alt="캐릭터 뽑기">
+            </button>
+            <button class="tab-btn" type="button" data-view="settings">
+              <span class="side-icon friends"></span>
+              조작
+            </button>
+            <button class="side-note image-note" type="button" aria-label="오늘도 누구랑 배구할까?">
+              <img src="assets/예시.png" alt="오늘도 누구랑 배구할까? 귀여운 친구들과 함께 놀아봐요!">
+            </button>
+          </aside>
+
+          <section class="lobby-center" aria-label="타이틀 장면">
+            <h1>
+              <span>동물</span>
+              <b>배구</b>
+            </h1>
+            <p>귀여운 친구들과 함께하는 배구 한 판!</p>
+            <div class="stadium-scene" aria-hidden="true">
+              <span class="stand stand-left"></span>
+              <span class="stand stand-right"></span>
+              <span class="court-net"></span>
+              <span class="volley-ball"></span>
+              <img class="mascot mascot-bear" src="assets/원숭이.png" alt="원숭이">
+              <img class="mascot mascot-bunny" src="assets/토끼.png" alt="토끼">
+              <img class="mascot mascot-cat" src="assets/고양이.png" alt="고양이">
+              <img class="mascot mascot-frog" src="assets/개구리.png" alt="개구리">
+            </div>
+          </section>
+
+          <section class="right-panel">
+            <div class="panel-view active" data-panel="stage">
+              <header class="panel-title">
+                <h2>스테이지 모드</h2>
+                <span>다양한 친구들을 만나보세요!</span>
+              </header>
+              <div class="featured-stage">
+                <img id="featuredStageImage" class="stage-preview" src="assets/stage-1.jpg" alt="바닷가 코트 미리보기">
+                <div>
+                  <small id="featuredStageNo">스테이지 1</small>
+                  <strong id="featuredStageName">바닷가 코트</strong>
+                  <p id="featuredStageDesc">시원한 바다 앞 첫 경기.</p>
+                </div>
+                <div class="stage-stars" aria-label="난이도"></div>
+                <button id="startBtn" class="enter-btn" type="button">입장하기</button>
+              </div>
+              <div class="stage-strip">
+                <button class="select-card selected" type="button" data-stage="beach">
+                  <img class="thumb" src="assets/stage-1.jpg" alt="바닷가 코트">
+                  <span>스테이지 1</span>
+                </button>
+                <button class="select-card" type="button" data-stage="sunset">
+                  <img class="thumb" src="assets/stage-2.jpg" alt="노을 숲 코트">
+                  <span>스테이지 2</span>
+                </button>
+                <button class="select-card" type="button" data-stage="blossom">
+                  <img class="thumb" src="assets/stage-3.jpg" alt="벚꽃 공원">
+                  <span>스테이지 3</span>
+                </button>
+                <button class="select-card" type="button" data-stage="moon">
+                  <img class="thumb" src="assets/stage-4.jpg" alt="달빛 숲">
+                  <span>스테이지 4</span>
+                </button>
+                <button class="select-card" type="button" data-stage="autumn">
+                  <img class="thumb" src="assets/stage-5.jpg" alt="가을 코트">
+                  <span>스테이지 5</span>
+                </button>
+                <button class="select-card" type="button" data-stage="forest">
+                  <img class="thumb" src="assets/stage-6.jpg" alt="숲속 배구장">
+                  <span>스테이지 6</span>
+                </button>
+              </div>
+              <span id="stageCount" class="hidden-count">1 / 6</span>
+            </div>
+
+            <div class="panel-view" data-panel="character">
+              <header class="panel-title">
+                <h2>캐릭터 뽑기</h2>
+                <span id="characterName">토끼</span>
+              </header>
+              <div class="gacha-box">
+                <div class="gacha-result">
+                  <img id="gachaResultImage" src="assets/토끼.png" alt="토끼">
+                  <div>
+                    <strong id="gachaResultName">토끼</strong>
+                    <span id="gachaResultText">기본 캐릭터</span>
+                  </div>
+                </div>
+                <button id="drawCharacterBtn" class="draw-btn" type="button">캐릭터 뽑기 500골드</button>
+              </div>
+              <div id="characterGrid" class="character-grid"></div>
+            </div>
+
+            <div class="panel-view" data-panel="settings">
+              <header class="panel-title">
+                <h2>조작 방법</h2>
+                <span>키보드</span>
+              </header>
+              <div class="control-list">
+                <p><b>왼쪽 / A</b><span>왼쪽 이동</span></p>
+                <p><b>오른쪽 / D</b><span>오른쪽 이동</span></p>
+                <p><b>위 / W</b><span>점프</span></p>
+                <p><b>아래 / S</b><span>낮은 자세</span></p>
+                <p><b>엔터 / 스페이스 / Z</b><span>타격·서브</span></p>
+              </div>
+            </div>
+          </section>
+
+          <div id="mailModal" class="mail-modal" aria-hidden="true">
+            <div class="mail-card">
+              <button id="mailCloseBtn" class="mail-close" type="button">X</button>
+              <span class="mail-icon">우편</span>
+              <h2>환영 선물</h2>
+              <p>메시지를 읽고 시작 보상을 받으세요.</p>
+              <div class="reward-row">
+                <strong>2000 골드</strong>
+                <strong>30 보석</strong>
+              </div>
+              <button id="claimMailBtn" class="claim-btn" type="button">보상 받기</button>
+            </div>
+          </div>
+
+          <div id="settingsModal" class="settings-modal" aria-hidden="true">
+            <div class="settings-card">
+              <button id="settingsCloseBtn" class="mail-close" type="button">X</button>
+              <span class="settings-icon">설정</span>
+              <h2>게임 설정</h2>
+              <div class="settings-list">
+                <label>
+                  <span>닉네임</span>
+                  <input id="nicknameInput" class="nickname-input" type="text" value="배구왕토끼" maxlength="10">
+                </label>
+                <label>
+                  <span>터치 버튼</span>
+                  <input id="touchToggle" type="checkbox" checked>
+                </label>
+                <label class="disabled-setting">
+                  <span>효과음</span>
+                  <em>구현 예정</em>
+                </label>
+              </div>
+              <div class="settings-actions">
+                <button id="saveNicknameBtn" type="button">닉네임 저장</button>
+                <button id="fullscreenBtn" type="button">전체화면</button>
+                <button id="settingsRestartBtn" type="button">경기 다시 시작</button>
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+        <div id="rewardModal" class="reward-modal" aria-hidden="true">
+          <div class="mail-card reward-card">
+            <span id="rewardIcon" class="mail-icon">WIN</span>
+            <h2 id="rewardTitle">경기 승리!</h2>
+            <p id="rewardMessage">보상을 받았어요.</p>
+            <div class="reward-row">
+              <strong id="rewardCoins">0 골드</strong>
+              <strong id="rewardGems">0 보석</strong>
+            </div>
+            <div class="result-actions">
+              <button id="rewardCloseBtn" class="claim-btn" type="button">보상 수령</button>
+              <button id="rewardNextBtn" class="claim-btn secondary" type="button">다음 스테이지 가기</button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+    <script src="game.js"></script>
+  </body>
+</html>
