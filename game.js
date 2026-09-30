@@ -62,6 +62,7 @@ const stageImages = {};
 const characterImages = {};
 const drawCost = 500;
 const saveKey = "animal-volley-save-v1";
+const playerIdKey = "animal-volley-player-id";
 
 const characterStats = {
   bunny: { label: "토끼고", name: "토끼", trait: "높은 점프", jump: 1.08, speed: 1.0, power: 1.0, src: "assets/토끼.png", playable: true },
@@ -178,8 +179,8 @@ let mailClaimed = false;
 let pendingResult = null;
 const ownedAnimals = new Set([defaultAnimal]);
 
-function saveGame() {
-  const data = {
+function currentSaveData() {
+  return {
     nickname: profileNicknameEl.textContent.trim(),
     selectedStage,
     selectedAnimal,
@@ -191,39 +192,89 @@ function saveGame() {
     ownedAnimals: Array.from(ownedAnimals),
     touchControlsVisible: !stageEl.classList.contains("hide-touch-controls")
   };
+}
+
+function getPlayerId() {
+  let playerId = localStorage.getItem(playerIdKey);
+  if (!/^[a-f0-9]{32}$/.test(playerId || "")) {
+    const bytes = new Uint8Array(16);
+    window.crypto?.getRandomValues?.(bytes);
+    playerId = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+    localStorage.setItem(playerIdKey, playerId);
+  }
+  return playerId;
+}
+
+function applySaveData(data) {
+  if (!data || typeof data !== "object") return;
+  coins = Math.max(0, Number(data.coins) || 0);
+  gems = Math.max(0, Number(data.gems) || 0);
+  playerLevel = Math.max(1, Number(data.playerLevel) || 1);
+  playerXp = clamp(Number(data.playerXp) || 0, 0, 99);
+  mailClaimed = Boolean(data.mailClaimed);
+  if (stages[data.selectedStage]) selectedStage = data.selectedStage;
+  ownedAnimals.clear();
+  ownedAnimals.add(defaultAnimal);
+  if (Array.isArray(data.ownedAnimals)) {
+    data.ownedAnimals.forEach((animal) => {
+      if (characterStats[animal]?.playable) ownedAnimals.add(animal);
+    });
+  }
+  selectedAnimal = normalizePlayableAnimal(data.selectedAnimal || selectedAnimal);
+  if (typeof data.nickname === "string" && data.nickname.trim()) {
+    profileNicknameEl.textContent = data.nickname.trim().slice(0, 10);
+  }
+  stageEl.classList.toggle("hide-touch-controls", data.touchControlsVisible === false);
+}
+
+function syncLoadedState() {
+  selectStage(selectedStage, false);
+  resetMatch();
+  syncPlayerName();
+  syncWallet();
+  syncProfileProgress();
+  syncSettingsPanel();
+  updateGachaResult(selectedAnimal, "선택 캐릭터");
+  updateProfileAvatar(selectedAnimal);
+  renderCharacterGrid();
+}
+
+function saveGame() {
+  const data = currentSaveData();
   try {
     localStorage.setItem(saveKey, JSON.stringify(data));
   } catch (error) {
     console.warn("save failed", error);
   }
+  fetch("/api/save", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Player-Id": getPlayerId()
+    },
+    body: JSON.stringify({ ...data, playerId: getPlayerId() })
+  }).catch(() => {});
 }
 
 function loadGame() {
   try {
     const raw = localStorage.getItem(saveKey);
-    if (!raw) return;
-    const data = JSON.parse(raw);
-    coins = Math.max(0, Number(data.coins) || 0);
-    gems = Math.max(0, Number(data.gems) || 0);
-    playerLevel = Math.max(1, Number(data.playerLevel) || 1);
-    playerXp = clamp(Number(data.playerXp) || 0, 0, 99);
-    mailClaimed = Boolean(data.mailClaimed);
-    if (stages[data.selectedStage]) selectedStage = data.selectedStage;
-    ownedAnimals.clear();
-    ownedAnimals.add(defaultAnimal);
-    if (Array.isArray(data.ownedAnimals)) {
-      data.ownedAnimals.forEach((animal) => {
-        if (characterStats[animal]?.playable) ownedAnimals.add(animal);
-      });
-    }
-    selectedAnimal = normalizePlayableAnimal(data.selectedAnimal || selectedAnimal);
-    if (typeof data.nickname === "string" && data.nickname.trim()) {
-      profileNicknameEl.textContent = data.nickname.trim().slice(0, 10);
-    }
-    stageEl.classList.toggle("hide-touch-controls", data.touchControlsVisible === false);
+    if (raw) applySaveData(JSON.parse(raw));
   } catch (error) {
     console.warn("load failed", error);
   }
+}
+
+function loadServerGame() {
+  fetch("/api/save", { headers: { "X-Player-Id": getPlayerId() } })
+    .then((response) => response.ok ? response.json() : null)
+    .then((data) => {
+      if (!data?.save) return;
+      applySaveData(data.save);
+      localStorage.setItem(saveKey, JSON.stringify(currentSaveData()));
+      syncLoadedState();
+    })
+    .catch(() => {});
 }
 
 function playerShotIntent() {
@@ -253,13 +304,13 @@ function nextStageKey() {
   return keys[Math.min(index + 1, keys.length - 1)] || selectedStage;
 }
 
-function selectStage(stageKey) {
+function selectStage(stageKey, shouldSave = true) {
   selectedStage = stageKey;
   document.querySelectorAll("[data-stage]").forEach((item) => {
     item.classList.toggle("selected", item.dataset.stage === selectedStage);
   });
   updateStagePreview();
-  saveGame();
+  if (shouldSave) saveGame();
 }
 
 function currentOpponentAnimal() {
@@ -1188,7 +1239,7 @@ menuBtn.addEventListener("click", showMenu);
 restartBtn.addEventListener("click", resetMatch);
 
 loadGame();
-selectStage(selectedStage);
+selectStage(selectedStage, false);
 resetMatch();
 syncPlayerName();
 syncWallet();
@@ -1197,5 +1248,6 @@ syncSettingsPanel();
 updateGachaResult(selectedAnimal, "선택 캐릭터");
 updateProfileAvatar(selectedAnimal);
 renderCharacterGrid();
+loadServerGame();
 showMenu();
 loop();
