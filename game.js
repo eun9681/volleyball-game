@@ -63,6 +63,9 @@ const characterImages = {};
 const drawCost = 500;
 const saveKey = "animal-volley-save-v1";
 const playerIdKey = "animal-volley-player-id";
+const playerSecretKey = "animal-volley-player-secret";
+const playerIdPattern = /^[a-f0-9]{32}$/;
+const playerSecretPattern = /^[a-f0-9]{64}$/;
 
 const characterStats = {
   bunny: { label: "토끼고", name: "토끼", trait: "높은 점프", jump: 1.08, speed: 1.0, power: 1.0, src: "assets/토끼.png", playable: true },
@@ -196,13 +199,40 @@ function currentSaveData() {
 
 function getPlayerId() {
   let playerId = localStorage.getItem(playerIdKey);
-  if (!/^[a-f0-9]{32}$/.test(playerId || "")) {
+  if (!playerIdPattern.test(playerId || "")) {
     const bytes = new Uint8Array(16);
-    window.crypto?.getRandomValues?.(bytes);
+    if (window.crypto?.getRandomValues) {
+      window.crypto.getRandomValues(bytes);
+    } else {
+      for (let index = 0; index < bytes.length; index += 1) {
+        bytes[index] = Math.floor(Math.random() * 256);
+      }
+    }
     playerId = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
     localStorage.setItem(playerIdKey, playerId);
   }
   return playerId;
+}
+
+function randomHex(byteLength) {
+  const bytes = new Uint8Array(byteLength);
+  if (window.crypto?.getRandomValues) {
+    window.crypto.getRandomValues(bytes);
+  } else {
+    for (let index = 0; index < bytes.length; index += 1) {
+      bytes[index] = Math.floor(Math.random() * 256);
+    }
+  }
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function getPlayerSecret() {
+  let playerSecret = localStorage.getItem(playerSecretKey);
+  if (!playerSecretPattern.test(playerSecret || "")) {
+    playerSecret = randomHex(32);
+    localStorage.setItem(playerSecretKey, playerSecret);
+  }
+  return playerSecret;
 }
 
 function applySaveData(data) {
@@ -248,11 +278,14 @@ function saveGame() {
   }
   fetch("/api/save", {
     method: "POST",
+    credentials: "same-origin",
+    cache: "no-store",
     headers: {
       "Content-Type": "application/json",
-      "X-Player-Id": getPlayerId()
+      "X-Player-Id": getPlayerId(),
+      "X-Player-Secret": getPlayerSecret()
     },
-    body: JSON.stringify({ ...data, playerId: getPlayerId() })
+    body: JSON.stringify({ ...data, playerSecret: getPlayerSecret() })
   }).catch(() => {});
 }
 
@@ -266,7 +299,14 @@ function loadGame() {
 }
 
 function loadServerGame() {
-  fetch("/api/save", { headers: { "X-Player-Id": getPlayerId() } })
+  fetch("/api/save", {
+    credentials: "same-origin",
+    cache: "no-store",
+    headers: {
+      "X-Player-Id": getPlayerId(),
+      "X-Player-Secret": getPlayerSecret()
+    }
+  })
     .then((response) => response.ok ? response.json() : null)
     .then((data) => {
       if (!data?.save) return;
