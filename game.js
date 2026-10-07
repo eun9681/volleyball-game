@@ -16,6 +16,16 @@ const mailNoticeEl = document.querySelector("#mailNotice");
 const mailModal = document.querySelector("#mailModal");
 const mailCloseBtn = document.querySelector("#mailCloseBtn");
 const claimMailBtn = document.querySelector("#claimMailBtn");
+const loginBtn = document.querySelector("#loginBtn");
+const loginStateEl = document.querySelector("#loginState");
+const loginModal = document.querySelector("#loginModal");
+const loginCloseBtn = document.querySelector("#loginCloseBtn");
+const loginUsernameEl = document.querySelector("#loginUsername");
+const loginPasswordEl = document.querySelector("#loginPassword");
+const loginMessageEl = document.querySelector("#loginMessage");
+const loginSubmitBtn = document.querySelector("#loginSubmitBtn");
+const registerSubmitBtn = document.querySelector("#registerSubmitBtn");
+const logoutBtn = document.querySelector("#logoutBtn");
 const settingsBtn = document.querySelector("#settingsBtn");
 const settingsModal = document.querySelector("#settingsModal");
 const settingsCloseBtn = document.querySelector("#settingsCloseBtn");
@@ -64,6 +74,8 @@ const drawCost = 500;
 const saveKey = "animal-volley-save-v1";
 const playerIdKey = "animal-volley-player-id";
 const playerSecretKey = "animal-volley-player-secret";
+const authTokenKey = "animal-volley-auth-token";
+const authUserKey = "animal-volley-auth-user";
 const playerIdPattern = /^[a-f0-9]{32}$/;
 const playerSecretPattern = /^[a-f0-9]{64}$/;
 
@@ -235,6 +247,30 @@ function getPlayerSecret() {
   return playerSecret;
 }
 
+function authToken() {
+  return localStorage.getItem(authTokenKey) || "";
+}
+
+function authUser() {
+  try {
+    return JSON.parse(localStorage.getItem(authUserKey) || "null");
+  } catch {
+    return null;
+  }
+}
+
+function authHeaders(extra = {}) {
+  const token = authToken();
+  return token ? { ...extra, Authorization: `Bearer ${token}` } : extra;
+}
+
+function syncAuthUi() {
+  const user = authUser();
+  loginBtn.firstChild.textContent = user ? "계정" : "로그인";
+  loginStateEl.textContent = user ? user.username : "계정";
+  logoutBtn.disabled = !user;
+}
+
 function applySaveData(data) {
   if (!data || typeof data !== "object") return;
   coins = Math.max(0, Number(data.coins) || 0);
@@ -280,11 +316,11 @@ function saveGame() {
     method: "POST",
     credentials: "same-origin",
     cache: "no-store",
-    headers: {
+    headers: authHeaders({
       "Content-Type": "application/json",
       "X-Player-Id": getPlayerId(),
       "X-Player-Secret": getPlayerSecret()
-    },
+    }),
     body: JSON.stringify({ ...data, playerSecret: getPlayerSecret() })
   }).catch(() => {});
 }
@@ -302,10 +338,10 @@ function loadServerGame() {
   fetch("/api/save", {
     credentials: "same-origin",
     cache: "no-store",
-    headers: {
+    headers: authHeaders({
       "X-Player-Id": getPlayerId(),
       "X-Player-Secret": getPlayerSecret()
-    }
+    })
   })
     .then((response) => response.ok ? response.json() : null)
     .then((data) => {
@@ -315,6 +351,71 @@ function loadServerGame() {
       syncLoadedState();
     })
     .catch(() => {});
+}
+
+function openLoginModal() {
+  syncAuthUi();
+  const user = authUser();
+  loginMessageEl.textContent = user ? `${user.username} 계정으로 로그인 중` : "로그인하면 기록을 서버에 저장해요.";
+  loginModal.classList.add("open");
+  loginModal.setAttribute("aria-hidden", "false");
+}
+
+function closeLoginModal() {
+  loginModal.classList.remove("open");
+  loginModal.setAttribute("aria-hidden", "true");
+}
+
+function setAuth(token, user) {
+  localStorage.setItem(authTokenKey, token);
+  localStorage.setItem(authUserKey, JSON.stringify(user));
+  syncAuthUi();
+}
+
+function authPayload() {
+  return {
+    username: loginUsernameEl.value.trim(),
+    password: loginPasswordEl.value
+  };
+}
+
+function submitAuth(mode) {
+  const payload = authPayload();
+  if (!payload.username || !payload.password) {
+    loginMessageEl.textContent = "아이디와 비밀번호를 입력하세요.";
+    return;
+  }
+  loginMessageEl.textContent = mode === "login" ? "로그인 중..." : "회원가입 중...";
+  fetch(`/api/auth/${mode}`, {
+    method: "POST",
+    credentials: "same-origin",
+    cache: "no-store",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  })
+    .then((response) => response.ok ? response.json() : Promise.reject(response))
+    .then((data) => {
+      setAuth(data.token, data.user);
+      loginPasswordEl.value = "";
+      loginMessageEl.textContent = `${data.user.username} 계정 연결 완료`;
+      loadServerGame();
+      saveGame();
+    })
+    .catch(() => {
+      loginMessageEl.textContent = mode === "login" ? "로그인 실패" : "회원가입 실패";
+    });
+}
+
+function logout() {
+  fetch("/api/auth/logout", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: authHeaders()
+  }).catch(() => {});
+  localStorage.removeItem(authTokenKey);
+  localStorage.removeItem(authUserKey);
+  syncAuthUi();
+  loginMessageEl.textContent = "로그아웃 완료";
 }
 
 function playerShotIntent() {
@@ -1219,6 +1320,21 @@ mailCloseBtn.addEventListener("click", () => {
   mailModal.setAttribute("aria-hidden", "true");
 });
 
+loginBtn.addEventListener("click", openLoginModal);
+loginCloseBtn.addEventListener("click", closeLoginModal);
+loginModal.addEventListener("click", (event) => {
+  if (event.target === loginModal) closeLoginModal();
+});
+loginSubmitBtn.addEventListener("click", () => submitAuth("login"));
+registerSubmitBtn.addEventListener("click", () => submitAuth("register"));
+logoutBtn.addEventListener("click", logout);
+loginPasswordEl.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    submitAuth("login");
+  }
+});
+
 settingsBtn.addEventListener("click", openSettings);
 settingsCloseBtn.addEventListener("click", closeSettings);
 settingsModal.addEventListener("click", (event) => {
@@ -1285,6 +1401,7 @@ syncPlayerName();
 syncWallet();
 syncProfileProgress();
 syncSettingsPanel();
+syncAuthUi();
 updateGachaResult(selectedAnimal, "선택 캐릭터");
 updateProfileAvatar(selectedAnimal);
 renderCharacterGrid();

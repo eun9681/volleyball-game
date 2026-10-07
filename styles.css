@@ -1243,7 +1243,8 @@ button.is-active {
 }
 
 .mail-modal,
-.reward-modal {
+.reward-modal,
+.auth-modal {
   position: absolute;
   inset: 0;
   z-index: 10;
@@ -1255,12 +1256,14 @@ button.is-active {
 
 .mail-modal.open,
 .settings-modal.open,
-.reward-modal.open {
+.reward-modal.open,
+.auth-modal.open {
   display: grid;
 }
 
 .mail-card,
-.settings-card {
+.settings-card,
+.auth-card {
   position: relative;
   width: min(430px, 86%);
   padding: 26px;
@@ -1325,11 +1328,13 @@ button.is-active {
 }
 
 .mail-card h2,
-.settings-card h2 {
+.settings-card h2,
+.auth-card h2 {
   margin: 16px 0 8px;
 }
 
-.settings-modal {
+.settings-modal,
+.auth-modal {
   position: absolute;
   inset: 0;
   z-index: 10;
@@ -1337,6 +1342,13 @@ button.is-active {
   place-items: center;
   background: rgba(73, 48, 32, 0.32);
   backdrop-filter: blur(2px);
+}
+
+.auth-message {
+  min-height: 22px;
+  margin: 8px 0 14px;
+  color: #8b6a54;
+  font-weight: 900;
 }
 
 .settings-list {

@@ -86,6 +86,7 @@
               <strong id="gemAmount">0</strong>
             </div>
             <nav class="quick-icons" aria-label="quick menu">
+              <button id="loginBtn" type="button">로그인<span id="loginState">계정</span></button>
               <button id="settingsBtn" class="asset-icon-btn" type="button" aria-label="설정">
                 <img src="assets/설정_img.png" alt="설정">
               </button>
@@ -242,6 +243,30 @@
                 <button id="saveNicknameBtn" type="button">닉네임 저장</button>
                 <button id="fullscreenBtn" type="button">전체화면</button>
                 <button id="settingsRestartBtn" type="button">경기 다시 시작</button>
+              </div>
+            </div>
+          </div>
+
+          <div id="loginModal" class="auth-modal" aria-hidden="true">
+            <div class="auth-card">
+              <button id="loginCloseBtn" class="mail-close" type="button">X</button>
+              <span class="settings-icon">LOGIN</span>
+              <h2>계정 로그인</h2>
+              <div class="settings-list">
+                <label>
+                  <span>아이디</span>
+                  <input id="loginUsername" class="nickname-input" type="text" maxlength="16" autocomplete="username">
+                </label>
+                <label>
+                  <span>비밀번호</span>
+                  <input id="loginPassword" class="nickname-input" type="password" maxlength="64" autocomplete="current-password">
+                </label>
+              </div>
+              <p id="loginMessage" class="auth-message">로그인하면 기록을 서버에 저장해요.</p>
+              <div class="settings-actions">
+                <button id="loginSubmitBtn" type="button">로그인</button>
+                <button id="registerSubmitBtn" type="button">회원가입</button>
+                <button id="logoutBtn" type="button">로그아웃</button>
               </div>
             </div>
           </div>

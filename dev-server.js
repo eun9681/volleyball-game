@@ -8,6 +8,7 @@ const port = Number(process.env.PORT || 5173);
 const host = process.env.HOST || (process.env.PORT ? "0.0.0.0" : "127.0.0.1");
 const dataDir = path.join(root, "server-data");
 const savePath = path.join(dataDir, "saves.json");
+const usersPath = path.join(dataDir, "users.json");
 const types = {
   ".html": "text/html; charset=utf-8",
   ".css": "text/css; charset=utf-8",
@@ -20,6 +21,7 @@ const types = {
 const playableAnimals = new Set(["bunny", "cat", "bear", "frog", "sheep", "penguin", "chick", "lion", "turtle", "rhino", "parrot"]);
 const stages = new Set(["beach", "sunset", "blossom", "moon", "autumn", "forest"]);
 const rateBuckets = new Map();
+const sessions = new Map();
 const maxBodyBytes = 24000;
 const maxSaveJump = {
   coins: 2500,
@@ -57,6 +59,19 @@ function loadSaves() {
   } catch {
     return {};
   }
+}
+
+function loadUsers() {
+  try {
+    return JSON.parse(fs.readFileSync(usersPath, "utf8"));
+  } catch {
+    return {};
+  }
+}
+
+function writeUsers(users) {
+  fs.mkdirSync(dataDir, { recursive: true });
+  fs.writeFileSync(usersPath, JSON.stringify(users, null, 2));
 }
 
 function writeSaves(saves) {
@@ -129,6 +144,47 @@ function hashSecret(secret) {
   return crypto.createHash("sha256").update(String(secret)).digest("hex");
 }
 
+function hashPassword(password, salt = crypto.randomBytes(16).toString("hex")) {
+  const hash = crypto.pbkdf2Sync(String(password), salt, 120000, 32, "sha256").toString("hex");
+  return { salt, hash };
+}
+
+function validPassword(password, user) {
+  if (!user?.salt || !user?.passwordHash) return false;
+  const { hash } = hashPassword(password, user.salt);
+  const a = Buffer.from(hash, "hex");
+  const b = Buffer.from(user.passwordHash, "hex");
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+function cleanUsername(value) {
+  const username = String(value || "").trim().slice(0, 16);
+  return /^[A-Za-z0-9_가-힣]{2,16}$/u.test(username) ? username : "";
+}
+
+function validPasswordText(value) {
+  const password = String(value || "");
+  return password.length >= 4 && password.length <= 64 ? password : "";
+}
+
+function authUserFrom(req) {
+  const header = String(req.headers.authorization || "");
+  const token = header.startsWith("Bearer ") ? header.slice(7) : "";
+  const session = sessions.get(token);
+  if (!session || session.expiresAt < Date.now()) {
+    if (token) sessions.delete(token);
+    return null;
+  }
+  return session;
+}
+
+function publicUser(user) {
+  return {
+    id: user.id,
+    username: user.username
+  };
+}
+
 function playerSecretFrom(req, data = {}) {
   const headerSecret = String(req.headers["x-player-secret"] || "");
   const bodySecret = String(data.playerSecret || "");
@@ -194,6 +250,14 @@ function playerIdFrom(req, data = {}) {
   return /^[a-f0-9]{32}$/.test(id) ? id : "";
 }
 
+function saveKeyFor(req, data = {}) {
+  const session = authUserFrom(req);
+  if (session) return { key: `account:${session.userId}`, session };
+  const playerId = playerIdFrom(req, data);
+  const playerSecret = playerSecretFrom(req, data);
+  return { key: playerId, playerSecret };
+}
+
 const server = http.createServer((req, res) => {
   if (!rateLimit(req, res)) return;
   if (!validOrigin(req)) return sendJson(res, 403, { error: "forbidden" });
@@ -207,14 +271,67 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  if (url.pathname === "/api/auth/register" && req.method === "POST") {
+    return readJson(req, (error, data) => {
+      if (error) return sendJson(res, 400, { error: "invalid json" });
+      const username = cleanUsername(data.username);
+      const password = validPasswordText(data.password);
+      if (!username || !password) return sendJson(res, 400, { error: "invalid credentials" });
+      const users = loadUsers();
+      const normalized = username.toLowerCase();
+      if (users[normalized]) return sendJson(res, 409, { error: "user exists" });
+      const { salt, hash } = hashPassword(password);
+      const user = {
+        id: crypto.randomBytes(16).toString("hex"),
+        username,
+        salt,
+        passwordHash: hash,
+        createdAt: new Date().toISOString()
+      };
+      users[normalized] = user;
+      writeUsers(users);
+      const token = crypto.randomBytes(32).toString("hex");
+      sessions.set(token, { userId: user.id, username: user.username, expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000 });
+      return sendJson(res, 201, { token, user: publicUser(user) });
+    });
+  }
+
+  if (url.pathname === "/api/auth/login" && req.method === "POST") {
+    return readJson(req, (error, data) => {
+      if (error) return sendJson(res, 400, { error: "invalid json" });
+      const username = cleanUsername(data.username);
+      const password = validPasswordText(data.password);
+      const users = loadUsers();
+      const user = users[username.toLowerCase()];
+      if (!username || !password || !validPassword(password, user)) {
+        return sendJson(res, 401, { error: "login failed" });
+      }
+      const token = crypto.randomBytes(32).toString("hex");
+      sessions.set(token, { userId: user.id, username: user.username, expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000 });
+      return sendJson(res, 200, { token, user: publicUser(user) });
+    });
+  }
+
+  if (url.pathname === "/api/auth/me" && req.method === "GET") {
+    const session = authUserFrom(req);
+    if (!session) return sendJson(res, 401, { error: "unauthorized" });
+    return sendJson(res, 200, { user: { id: session.userId, username: session.username } });
+  }
+
+  if (url.pathname === "/api/auth/logout" && req.method === "POST") {
+    const header = String(req.headers.authorization || "");
+    const token = header.startsWith("Bearer ") ? header.slice(7) : "";
+    if (token) sessions.delete(token);
+    return sendJson(res, 200, { ok: true });
+  }
+
   if (url.pathname === "/api/save" && req.method === "GET") {
-    const playerId = playerIdFrom(req);
-    const playerSecret = playerSecretFrom(req);
-    if (!playerId) return sendJson(res, 400, { error: "invalid player id" });
-    if (!playerSecret) return sendJson(res, 401, { error: "unauthorized" });
+    const auth = saveKeyFor(req);
+    if (!auth.key) return sendJson(res, 400, { error: "invalid player id" });
+    if (!auth.session && !auth.playerSecret) return sendJson(res, 401, { error: "unauthorized" });
     const saves = loadSaves();
-    if (!canAccessSave(saves[playerId], playerSecret)) return sendJson(res, 403, { error: "forbidden" });
-    const save = saves[playerId] ? { ...saves[playerId] } : null;
+    if (!auth.session && !canAccessSave(saves[auth.key], auth.playerSecret)) return sendJson(res, 403, { error: "forbidden" });
+    const save = saves[auth.key] ? { ...saves[auth.key] } : null;
     if (save) delete save.secretHash;
     return sendJson(res, 200, { save });
   }
@@ -222,15 +339,15 @@ const server = http.createServer((req, res) => {
   if (url.pathname === "/api/save" && req.method === "POST") {
     return readJson(req, (error, data) => {
       if (error) return sendJson(res, 400, { error: "invalid json" });
-      const playerId = playerIdFrom(req, data);
-      const playerSecret = playerSecretFrom(req, data);
-      if (!playerId) return sendJson(res, 400, { error: "invalid player id" });
-      if (!playerSecret) return sendJson(res, 401, { error: "unauthorized" });
+      const auth = saveKeyFor(req, data);
+      if (!auth.key) return sendJson(res, 400, { error: "invalid player id" });
+      if (!auth.session && !auth.playerSecret) return sendJson(res, 401, { error: "unauthorized" });
       const saves = loadSaves();
-      if (!canAccessSave(saves[playerId], playerSecret)) return sendJson(res, 403, { error: "forbidden" });
-      saves[playerId] = sanitizeSave(data, saves[playerId], playerSecret);
+      if (!auth.session && !canAccessSave(saves[auth.key], auth.playerSecret)) return sendJson(res, 403, { error: "forbidden" });
+      const secret = auth.session ? crypto.createHash("sha256").update(auth.key).digest("hex") : auth.playerSecret;
+      saves[auth.key] = sanitizeSave(data, saves[auth.key], secret);
       writeSaves(saves);
-      const save = { ...saves[playerId] };
+      const save = { ...saves[auth.key] };
       delete save.secretHash;
       return sendJson(res, 200, { ok: true, save });
     });
