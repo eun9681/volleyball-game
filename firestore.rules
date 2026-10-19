@@ -1,0 +1,31 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /players/{uid} {
+      function ownsSave() {
+        return request.auth != null && request.auth.uid == uid;
+      }
+      function validSave() {
+        let d = request.resource.data;
+        return d.keys().hasAll(['nickname', 'selectedStage', 'selectedAnimal', 'coins', 'gems',
+            'playerLevel', 'playerXp', 'mailClaimed', 'ownedAnimals', 'touchControlsVisible', 'updatedAt'])
+          && d.keys().hasOnly(['nickname', 'selectedStage', 'selectedAnimal', 'coins', 'gems',
+            'playerLevel', 'playerXp', 'mailClaimed', 'ownedAnimals', 'touchControlsVisible', 'updatedAt'])
+          && d.nickname is string && d.nickname.size() > 0 && d.nickname.size() <= 10
+          && d.selectedStage in ['beach', 'sunset', 'blossom', 'moon', 'autumn', 'forest']
+          && d.ownedAnimals is list && d.ownedAnimals.size() >= 1 && d.ownedAnimals.size() <= 11
+          && d.ownedAnimals.hasAll(['bunny'])
+          && d.ownedAnimals.hasOnly(['bunny', 'cat', 'bear', 'frog', 'sheep', 'penguin', 'chick', 'lion', 'turtle', 'rhino', 'parrot'])
+          && d.selectedAnimal in d.ownedAnimals
+          && d.coins is int && d.coins >= 0 && d.coins <= 1000000000
+          && d.gems is int && d.gems >= 0 && d.gems <= 1000000000
+          && d.playerLevel is int && d.playerLevel >= 1 && d.playerLevel <= 1000000
+          && d.playerXp is int && d.playerXp >= 0 && d.playerXp <= 99
+          && d.mailClaimed is bool && d.touchControlsVisible is bool
+          && d.updatedAt == request.time;
+      }
+      allow get: if ownsSave();
+      allow create, update: if ownsSave() && validSave();
+    }
+  }
+}

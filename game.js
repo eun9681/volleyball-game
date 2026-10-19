@@ -1,3 +1,5 @@
+import { auth, watchAccount, authenticate, logoutAccount, readCloudSave, writeCloudSave, firebaseErrorMessage } from "./firebase.js";
+
 const stageEl = document.querySelector("#stage");
 const canvas = document.querySelector("#game");
 const ctx = canvas.getContext("2d");
@@ -72,13 +74,15 @@ const stageImages = {};
 const characterImages = {};
 const drawCost = 500;
 const saveKey = "animal-volley-save-v1";
-const playerIdKey = "animal-volley-player-id";
-const playerSecretKey = "animal-volley-player-secret";
-const authTokenKey = "animal-volley-auth-token";
-const authUserKey = "animal-volley-auth-user";
-const playerIdPattern = /^[a-f0-9]{32}$/;
-const playerSecretPattern = /^[a-f0-9]{64}$/;
+let cloudReadyUid = null;
+let accountRevision = 0;
+let saveQueue = Promise.resolve();
+let authBusy = false;
+let accountLoading = false;
 
+function localSaveKey() {
+  return auth.currentUser ? `${saveKey}:${auth.currentUser.uid}` : saveKey;
+}
 const characterStats = {
   bunny: { label: "토끼고", name: "토끼", trait: "높은 점프", jump: 1.08, speed: 1.0, power: 1.0, src: "assets/토끼.png", playable: true },
   cat: { label: "고양이고", name: "고양이", trait: "빠른 발", jump: 1.0, speed: 1.16, power: 0.96, src: "assets/고양이.png", playable: true },
@@ -209,68 +213,14 @@ function currentSaveData() {
   };
 }
 
-function getPlayerId() {
-  let playerId = localStorage.getItem(playerIdKey);
-  if (!playerIdPattern.test(playerId || "")) {
-    const bytes = new Uint8Array(16);
-    if (window.crypto?.getRandomValues) {
-      window.crypto.getRandomValues(bytes);
-    } else {
-      for (let index = 0; index < bytes.length; index += 1) {
-        bytes[index] = Math.floor(Math.random() * 256);
-      }
-    }
-    playerId = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
-    localStorage.setItem(playerIdKey, playerId);
-  }
-  return playerId;
-}
-
-function randomHex(byteLength) {
-  const bytes = new Uint8Array(byteLength);
-  if (window.crypto?.getRandomValues) {
-    window.crypto.getRandomValues(bytes);
-  } else {
-    for (let index = 0; index < bytes.length; index += 1) {
-      bytes[index] = Math.floor(Math.random() * 256);
-    }
-  }
-  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
-}
-
-function getPlayerSecret() {
-  let playerSecret = localStorage.getItem(playerSecretKey);
-  if (!playerSecretPattern.test(playerSecret || "")) {
-    playerSecret = randomHex(32);
-    localStorage.setItem(playerSecretKey, playerSecret);
-  }
-  return playerSecret;
-}
-
-function authToken() {
-  return localStorage.getItem(authTokenKey) || "";
-}
-
-function authUser() {
-  try {
-    return JSON.parse(localStorage.getItem(authUserKey) || "null");
-  } catch {
-    return null;
-  }
-}
-
-function authHeaders(extra = {}) {
-  const token = authToken();
-  return token ? { ...extra, Authorization: `Bearer ${token}` } : extra;
-}
-
 function syncAuthUi() {
-  const user = authUser();
+  const user = auth.currentUser;
   loginBtn.firstChild.textContent = user ? "계정" : "로그인";
-  loginStateEl.textContent = user ? user.username : "계정";
-  logoutBtn.disabled = !user;
+  loginStateEl.textContent = user ? user.email : "계정";
+  logoutBtn.disabled = !user || authBusy || accountLoading;
+  loginSubmitBtn.disabled = authBusy || accountLoading;
+  registerSubmitBtn.disabled = authBusy || accountLoading;
 }
-
 function applySaveData(data) {
   if (!data || typeof data !== "object") return;
   coins = Math.max(0, Number(data.coins) || 0);
@@ -305,58 +255,97 @@ function syncLoadedState() {
   renderCharacterGrid();
 }
 
+function cacheSave(data) {
+  try {
+    localStorage.setItem(localSaveKey(), JSON.stringify(data));
+  } catch (error) {
+    console.warn("Local save failed", error);
+  }
+}
+
 function saveGame() {
   const data = currentSaveData();
-  try {
-    localStorage.setItem(saveKey, JSON.stringify(data));
-  } catch (error) {
-    console.warn("save failed", error);
-  }
-  fetch("/api/save", {
-    method: "POST",
-    credentials: "same-origin",
-    cache: "no-store",
-    headers: authHeaders({
-      "Content-Type": "application/json",
-      "X-Player-Id": getPlayerId(),
-      "X-Player-Secret": getPlayerSecret()
-    }),
-    body: JSON.stringify({ ...data, playerSecret: getPlayerSecret() })
-  }).catch(() => {});
+  cacheSave(data);
+  const uid = auth.currentUser?.uid;
+  if (!uid || cloudReadyUid !== uid) return;
+  // Preserve write order and never send an old account's data to a new account.
+  const revision = accountRevision;
+  saveQueue = saveQueue.then(async () => {
+    if (revision !== accountRevision || auth.currentUser?.uid !== uid) return;
+    await writeCloudSave(uid, data);
+  }).catch((error) => {
+    console.warn("Cloud save failed", error);
+    if (revision === accountRevision) {
+      loginMessageEl.textContent = `기기에 저장됨 · ${firebaseErrorMessage(error)}`;
+    }
+  });
 }
 
 function loadGame() {
   try {
-    const raw = localStorage.getItem(saveKey);
+    const raw = localStorage.getItem(localSaveKey());
     if (raw) applySaveData(JSON.parse(raw));
   } catch (error) {
-    console.warn("load failed", error);
+    console.warn("Local load failed", error);
   }
 }
 
-function loadServerGame() {
-  fetch("/api/save", {
-    credentials: "same-origin",
-    cache: "no-store",
-    headers: authHeaders({
-      "X-Player-Id": getPlayerId(),
-      "X-Player-Secret": getPlayerSecret()
-    })
-  })
-    .then((response) => response.ok ? response.json() : null)
-    .then((data) => {
-      if (!data?.save) return;
-      applySaveData(data.save);
-      localStorage.setItem(saveKey, JSON.stringify(currentSaveData()));
+function resetAccountProgress() {
+  applySaveData({
+    nickname: "배구왕토끼", selectedStage: "beach", selectedAnimal: defaultAnimal,
+    coins: 0, gems: 0, playerLevel: 1, playerXp: 0,
+    mailClaimed: false, ownedAnimals: [defaultAnimal], touchControlsVisible: true
+  });
+  pendingResult = null;
+  closeRewardModal();
+}
+
+async function loadServerGame(user) {
+  const revision = ++accountRevision;
+  cloudReadyUid = null;
+  accountLoading = true;
+  stageEl.inert = true;
+  syncAuthUi();
+  showMenu();
+  resetAccountProgress();
+  loadGame();
+  syncLoadedState();
+  if (!user) {
+    accountLoading = false;
+    stageEl.inert = false;
+    syncAuthUi();
+    return;
+  }
+  loginMessageEl.textContent = "클라우드 기록 불러오는 중...";
+  try {
+    const data = await readCloudSave(user.uid);
+    if (revision !== accountRevision) return;
+    if (data) {
+      applySaveData(data);
       syncLoadedState();
-    })
-    .catch(() => {});
+      cacheSave(currentSaveData());
+    }
+    cloudReadyUid = user.uid;
+    // Only seed a missing document after confirming there is no cloud save.
+    if (!data) saveGame();
+    loginMessageEl.textContent = `${user.email} 계정 연결 완료`;
+  } catch (error) {
+    console.warn("Cloud load failed", error);
+    if (revision === accountRevision) {
+      loginMessageEl.textContent = `기기 기록 사용 중 · ${firebaseErrorMessage(error)}`;
+    }
+  } finally {
+    if (revision === accountRevision) {
+      accountLoading = false;
+      stageEl.inert = false;
+      syncAuthUi();
+    }
+  }
 }
 
 function openLoginModal() {
   syncAuthUi();
-  const user = authUser();
-  loginMessageEl.textContent = user ? `${user.username} 계정으로 로그인 중` : "로그인하면 기록을 서버에 저장해요.";
+  if (!auth.currentUser) loginMessageEl.textContent = "이메일로 로그인하면 기록을 클라우드에 저장해요.";
   loginModal.classList.add("open");
   loginModal.setAttribute("aria-hidden", "false");
 }
@@ -366,58 +355,45 @@ function closeLoginModal() {
   loginModal.setAttribute("aria-hidden", "true");
 }
 
-function setAuth(token, user) {
-  localStorage.setItem(authTokenKey, token);
-  localStorage.setItem(authUserKey, JSON.stringify(user));
-  syncAuthUi();
-}
-
-function authPayload() {
-  return {
-    username: loginUsernameEl.value.trim(),
-    password: loginPasswordEl.value
-  };
-}
-
-function submitAuth(mode) {
-  const payload = authPayload();
-  if (!payload.username || !payload.password) {
-    loginMessageEl.textContent = "아이디와 비밀번호를 입력하세요.";
+async function submitAuth(mode) {
+  if (authBusy || accountLoading) return;
+  const email = loginUsernameEl.value.trim();
+  const password = loginPasswordEl.value;
+  if (!email || !password) {
+    loginMessageEl.textContent = "이메일과 비밀번호를 입력하세요.";
     return;
   }
-  loginMessageEl.textContent = mode === "login" ? "로그인 중..." : "회원가입 중...";
-  fetch(`/api/auth/${mode}`, {
-    method: "POST",
-    credentials: "same-origin",
-    cache: "no-store",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload)
-  })
-    .then((response) => response.ok ? response.json() : Promise.reject(response))
-    .then((data) => {
-      setAuth(data.token, data.user);
-      loginPasswordEl.value = "";
-      loginMessageEl.textContent = `${data.user.username} 계정 연결 완료`;
-      loadServerGame();
-      saveGame();
-    })
-    .catch(() => {
-      loginMessageEl.textContent = mode === "login" ? "로그인 실패" : "회원가입 실패";
-    });
-}
-
-function logout() {
-  fetch("/api/auth/logout", {
-    method: "POST",
-    credentials: "same-origin",
-    headers: authHeaders()
-  }).catch(() => {});
-  localStorage.removeItem(authTokenKey);
-  localStorage.removeItem(authUserKey);
+  authBusy = true;
   syncAuthUi();
-  loginMessageEl.textContent = "로그아웃 완료";
+  loginMessageEl.textContent = mode === "login" ? "로그인 중..." : "회원가입 중...";
+  try {
+    // Complete queued writes before switching accounts.
+    await saveQueue;
+    await authenticate(mode, email, password);
+    loginPasswordEl.value = "";
+  } catch (error) {
+    loginMessageEl.textContent = firebaseErrorMessage(error);
+  } finally {
+    authBusy = false;
+    syncAuthUi();
+  }
 }
 
+async function logout() {
+  if (authBusy || accountLoading) return;
+  authBusy = true;
+  syncAuthUi();
+  try {
+    await saveQueue;
+    await logoutAccount();
+    loginMessageEl.textContent = "로그아웃 완료";
+  } catch (error) {
+    loginMessageEl.textContent = firebaseErrorMessage(error);
+  } finally {
+    authBusy = false;
+    syncAuthUi();
+  }
+}
 function playerShotIntent() {
   return {
     left: active("left"),
@@ -1405,6 +1381,6 @@ syncAuthUi();
 updateGachaResult(selectedAnimal, "선택 캐릭터");
 updateProfileAvatar(selectedAnimal);
 renderCharacterGrid();
-loadServerGame();
+watchAccount(loadServerGame);
 showMenu();
 loop();

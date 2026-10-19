@@ -254,15 +254,15 @@
               <h2>계정 로그인</h2>
               <div class="settings-list">
                 <label>
-                  <span>아이디</span>
-                  <input id="loginUsername" class="nickname-input" type="text" maxlength="16" autocomplete="username">
+                  <span>이메일</span>
+                  <input id="loginUsername" class="nickname-input" type="email" maxlength="254" autocomplete="username" placeholder="name@example.com">
                 </label>
                 <label>
                   <span>비밀번호</span>
-                  <input id="loginPassword" class="nickname-input" type="password" maxlength="64" autocomplete="current-password">
+                  <input id="loginPassword" class="nickname-input" type="password" minlength="6" maxlength="128" autocomplete="current-password">
                 </label>
               </div>
-              <p id="loginMessage" class="auth-message">로그인하면 기록을 서버에 저장해요.</p>
+              <p id="loginMessage" class="auth-message">이메일로 로그인하면 기록을 클라우드에 저장해요.</p>
               <div class="settings-actions">
                 <button id="loginSubmitBtn" type="button">로그인</button>
                 <button id="registerSubmitBtn" type="button">회원가입</button>

@@ -1,0 +1,20 @@
+{
+  "name": "animal-volleyball",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "test": "node --test cloud-save.test.cjs",
+    "build": "node build.js",
+    "dev": "npm run build && node dev-server.js",
+    "start": "npm run dev"
+  },
+  "dependencies": {
+    "firebase": "^13.0.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
+  },
+  "overrides": {
+    "@grpc/grpc-js": "^1.13.6"
+  }
+}
